@@ -10,16 +10,18 @@ MODELS = {
     "gemini-pro": "gemini-3.5-flash",
 }
 
-def run_agent(user_message: str, model: str = "gemini"):
+
+def run_agent(user_message: str, model: str = "gemini") -> str:
     from google import genai
     from google.genai import types
 
     model_id = MODELS.get(model)
     if not model_id:
-        print(f"❌ Unknown model '{model}'. Choose: {', '.join(MODELS.keys())}")
-        return
+        # Return the error as a string so Streamlit can display it
+        return f"❌ Unknown model '{model}'. Choose: {', '.join(MODELS.keys())}"
 
-    print(f"\n🤖 First Mate ({model} / {model_id})\n")
+    # We removed the print(f"\n🤖 First Mate...") here because the Streamlit UI 
+    # already has its own headers and we don't want terminal text leaking out.
 
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
@@ -50,9 +52,10 @@ def run_agent(user_message: str, model: str = "gemini"):
         fn_calls = response.function_calls
 
         if not fn_calls:
+            # THE CRITICAL CHANGE: Return the text instead of printing it
             if response.text:
-                print(response.text)
-            break
+                return response.text
+            return "No response generated."
 
         # Append model turn
         model_parts = []
@@ -63,7 +66,9 @@ def run_agent(user_message: str, model: str = "gemini"):
         # Execute tools and append results
         result_parts = []
         for fn in fn_calls:
-            print(f"  ⚓ [{fn.name}] querying Coral...")
+            # You can leave this print here; it will log to the terminal running Streamlit 
+            # for your own debugging, but won't show up in the web UI.
+            print(f"  ⚓ [{fn.name}] querying Coral...") 
             result = execute_tool(fn.name, dict(fn.args or {}))
             result_parts.append({
                 "function_response": {

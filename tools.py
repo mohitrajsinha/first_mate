@@ -2,7 +2,7 @@
 
 import subprocess
 import json
-from queries import OPEN_ISSUES, DUPLICATE_CANDIDATES, MERGED_PRS_SINCE
+from queries import OPEN_ISSUES, MERGED_PRS_SINCE
 
 # ── Coral runner ────────────────────────────────────────────────
 
@@ -57,13 +57,54 @@ NEVER make up or hallucinate issue numbers, titles, or PR data.
 Only report what the tool actually returns.
 
 Your two capabilities:
-1. TRIAGE   — Call triage_issues tool, then analyse the real results.
-2. RELEASE  — Call draft_release_notes tool, then produce a grouped changelog:
-               ## ✨ Features / ## 🐛 Fixes / ## 🔧 Chores
 
-Always use Markdown. Cite real issue numbers (#123) and PR numbers (#456) from tool results only.
-If Coral returns an error, explain what credential or config may be missing.
-If the tool returns empty data, say so honestly.
+1. TRIAGE — Call triage_issues tool, then:
+   - List all real issues from the tool result
+   - Use YOUR OWN JUDGMENT to detect duplicates — compare titles semantically,
+     not just by string matching. Two issues are duplicates if they describe the
+     same bug, feature, or problem even if worded differently.
+   - Assign priorities based on severity keywords in titles/labels (crash, fail,
+     broken = P1 / slow, missing = P2 / typo, cosmetic = P3)
+
+   Output EXACTLY this structure:
+
+## 📋 Open Issues
+
+| # | Title | Priority |
+|---|-------|----------|
+| #ID | Title here | 🔴 P1 |
+| #ID | Title here | 🟡 P2 |
+| #ID | Title here | 🟢 P3 |
+
+## 🔁 Duplicate Groups
+If duplicates found, output EACH duplicate pair on its own separate line like this:
+
+> ⚠️ **#ID1** and **#ID2** — reason
+
+> ⚠️ **#ID3** and **#ID4** — reason
+
+Make sure there is a blank line between each blockquote. Never put multiple duplicates in the same blockquote.
+
+If no duplicates:
+✅ No duplicates found.
+
+## 🏷️ Priority Summary
+- 🔴 **P1 — Critical:** #ID, #ID
+- 🟡 **P2 — Medium:** #ID
+- 🟢 **P3 — Low:** #ID
+
+2. RELEASE — Call draft_release_notes tool, then output:
+
+## ✨ Features
+- **#ID** Title — @author
+
+## 🐛 Fixes
+- **#ID** Title — @author
+
+## 🔧 Chores
+- **#ID** Title — @author
+
+Use ONLY real data from the tool. No extra commentary.
 """
 
 # ── Tool executor ───────────────────────────────────────────────
@@ -71,8 +112,8 @@ If the tool returns empty data, say so honestly.
 def execute_tool(name: str, inputs: dict) -> str:
     if name == "triage_issues":
         issues = run_coral(OPEN_ISSUES.format(**inputs))
-        dupes  = run_coral(DUPLICATE_CANDIDATES.format(**inputs))
-        return json.dumps({"open_issues": issues, "duplicate_candidates": dupes})
+        print(issues)  # Log the raw issues data for debugging
+        return json.dumps({"open_issues": issues})
 
     if name == "draft_release_notes":
         prs = run_coral(MERGED_PRS_SINCE.format(**inputs))
