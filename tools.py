@@ -1,8 +1,8 @@
-# tools.py — Tool definitions and handler (GitHub only)
+# tools.py — Tool definitions and handler (GitHub + Sentry)
 
 import subprocess
 import json
-from queries import OPEN_ISSUES, MERGED_PRS_SINCE
+from queries import OPEN_ISSUES, MERGED_PRS_SINCE, SENTRY_ISSUES, GITHUB_SENTRY_JOIN,SENTRY_PROJECT_ID
 
 # ── Coral runner ────────────────────────────────────────────────
 
@@ -11,13 +11,14 @@ def run_coral(sql: str) -> str:
         result = subprocess.run(
             ["coral", "sql", sql.strip(), "--format", "json"],
             capture_output=True, text=True,
-            timeout=30  # ← add this
+            timeout=60
         )
         if result.returncode != 0:
             return json.dumps({"error": result.stderr.strip()})
         return result.stdout.strip() or json.dumps({"rows": []})
     except subprocess.TimeoutExpired:
-        return json.dumps({"error": "Coral query timed out after 30 seconds"})
+        return json.dumps({"error": "Coral query timed out — try a smaller repo"})
+
 # ── Tool schema ─────────────────────────────────────────────────
 
 TOOL_DEFINITIONS = [
@@ -46,27 +47,35 @@ TOOL_DEFINITIONS = [
             "required": ["owner", "repo", "since"],
         },
     },
+    {
+        "name": "error_intelligence",
+        "description": (
+            "Cross-join GitHub merged PRs with Sentry errors to find which "
+            "PRs may have introduced new errors. Also fetches standalone Sentry issues."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "owner":          {"type": "string", "description": "GitHub org or username"},
+                "repo":           {"type": "string", "description": "GitHub repository name"},
+                "sentry_project": {"type": "string", "description": "Sentry project slug"},
+            },
+            "required": ["owner", "repo", "sentry_project"],
+        },
+    },
 ]
 
 SYSTEM_PROMPT = """
 You are First Mate 🏴‍☠️, an AI assistant for open source maintainers.
-You query GitHub data using Coral SQL.
+You query GitHub and Sentry data together using Coral SQL.
 
 IMPORTANT: You MUST always call the appropriate tool first before responding.
-NEVER make up or hallucinate issue numbers, titles, or PR data.
+NEVER make up or hallucinate issue numbers, titles, or error data.
 Only report what the tool actually returns.
 
-Your two capabilities:
+Your three capabilities:
 
-1. TRIAGE — Call triage_issues tool, then:
-   - List all real issues from the tool result
-   - Use YOUR OWN JUDGMENT to detect duplicates — compare titles semantically,
-     not just by string matching. Two issues are duplicates if they describe the
-     same bug, feature, or problem even if worded differently.
-   - Assign priorities based on severity keywords in titles/labels (crash, fail,
-     broken = P1 / slow, missing = P2 / typo, cosmetic = P3)
-
-   Output EXACTLY this structure:
+1. TRIAGE — Call triage_issues tool, then output EXACTLY this structure:
 
 ## 📋 Open Issues
 
@@ -77,16 +86,13 @@ Your two capabilities:
 | #ID | Title here | 🟢 P3 |
 
 ## 🔁 Duplicate Groups
-If duplicates found, output EACH duplicate pair on its own separate line like this:
+Each duplicate pair on its own separate line with a blank line between:
 
-> ⚠️ **#ID1** and **#ID2** — reason
+> ⚠️ **#ID1** and **#ID2** — reason they are duplicates
 
-> ⚠️ **#ID3** and **#ID4** — reason
+> ⚠️ **#ID3** and **#ID4** — reason they are duplicates
 
-Make sure there is a blank line between each blockquote. Never put multiple duplicates in the same blockquote.
-
-If no duplicates:
-✅ No duplicates found.
+If no duplicates: ✅ No duplicates found.
 
 ## 🏷️ Priority Summary
 - 🔴 **P1 — Critical:** #ID, #ID
@@ -104,6 +110,25 @@ If no duplicates:
 ## 🔧 Chores
 - **#ID** Title — @author
 
+3. ERROR INTELLIGENCE — Call error_intelligence tool, then output:
+
+## 🔴 Unresolved Sentry Errors
+
+| Sentry ID | Error | Level | Occurrences | First Seen |
+|-----------|-------|-------|-------------|------------|
+| SHORT-ID  | title | error | 42          | date       |
+
+## 🔗 PRs That May Have Introduced Errors
+If cross-join returns data:
+
+| PR | PR Title | Merged At | Sentry Error | Level |
+|----|----------|-----------|--------------|-------|
+| #ID | title   | date      | error title  | error |
+
+> 💡 These errors first appeared after the PR was merged — investigate these PRs first.
+
+If no cross-join data: ✅ No correlated errors found for recent PRs.
+
 Use ONLY real data from the tool. No extra commentary.
 """
 
@@ -112,11 +137,24 @@ Use ONLY real data from the tool. No extra commentary.
 def execute_tool(name: str, inputs: dict) -> str:
     if name == "triage_issues":
         issues = run_coral(OPEN_ISSUES.format(**inputs))
-        print(issues)  # Log the raw issues data for debugging
         return json.dumps({"open_issues": issues})
 
     if name == "draft_release_notes":
         prs = run_coral(MERGED_PRS_SINCE.format(**inputs))
         return json.dumps({"merged_prs": prs})
 
-    return json.dumps({"error": f"Unknown tool: {name}"})
+    if name == "error_intelligence":
+    # Resolve slug to numeric ID
+        id_query = f"SELECT id FROM sentry.projects WHERE slug = '{inputs['sentry_project']}' LIMIT 1"
+        id_result = run_coral(id_query)
+    
+        try:
+            parsed = json.loads(id_result)
+            if isinstance(parsed, list) and len(parsed) > 0:
+                inputs["sentry_project"] = parsed[0]["id"]
+        except Exception:
+            pass  # already numeric, use as-is
+
+        sentry  = run_coral(SENTRY_ISSUES.format(**inputs))
+        crossed = run_coral(GITHUB_SENTRY_JOIN.format(**inputs))
+        return json.dumps({"sentry_issues": sentry, "pr_error_correlation": crossed})

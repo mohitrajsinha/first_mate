@@ -39,25 +39,22 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- Sidebar ---
 with st.sidebar:
     st.markdown("### 🏴‍☠️ First Mate")
-    st.caption("GitHub, powered by Coral SQL")
-    
-    # Navigation styling
+    st.caption("GitHub + Sentry, powered by Coral SQL")
+
     nav_selection = st.radio(
-        "Navigation", 
-        ["🛠️ Triage issues", "📝 Release notes"], 
+        "Navigation",
+        ["🛠️ Triage issues", "📝 Release notes", "🔴 Error intelligence"],
         label_visibility="collapsed"
     )
-    
-    # Spacer
-    for _ in range(15):
+
+    for _ in range(12):
         st.write("")
-        
+
     selected_model = st.selectbox(
-        "Model", 
-        options=list(MODELS.keys()) if MODELS else ["gemini", "gemini-pro"],
+        "Model",
+        options=list(MODELS.keys()),
         help="Select the underlying LLM model"
     )
 
@@ -69,7 +66,7 @@ if nav_selection == "🛠️ Triage issues":
     # Input Row
     col1, col2 = st.columns([5, 1], vertical_alignment="bottom")
     with col1:
-        repo_input = st.text_input("Repository", value="mohitrajsinha/SauceDemo-Testing", placeholder="owner/repo", label_visibility="collapsed")
+        repo_input = st.text_input("Repository", placeholder="owner/repo", label_visibility="collapsed")
     with col2:
         run_btn = st.button("▶ Triage", use_container_width=True, type="primary")
 
@@ -110,7 +107,7 @@ elif nav_selection == "📝 Release notes":
     # Input Row for Release Notes
     col1, col2, col3 = st.columns([3, 2, 1], vertical_alignment="bottom")
     with col1:
-        repo_input = st.text_input("Repository", value="mohitrajsinha/SauceDemo-Testing", placeholder="owner/repo", key="repo_rn", label_visibility="collapsed")
+        repo_input = st.text_input("Repository", placeholder="owner/repo", key="repo_rn", label_visibility="collapsed")
     with col2:
         # Streamlit date picker to replace the YYYY-MM-DD CLI argument
         since_date = st.date_input("Since Date", value=datetime.date.today() - datetime.timedelta(days=7))
@@ -134,6 +131,56 @@ elif nav_selection == "📝 Release notes":
                 try:
                     response = run_agent(prompt, model=selected_model)
                     status.update(label="Draft Complete!", state="complete", expanded=False)
+                except Exception as e:
+                    status.update(label="Failed", state="error")
+                    st.error(f"Error running agent: {e}")
+                    response = None
+
+            if response:
+                with st.container(border=True):
+                    st.markdown(response)
+elif nav_selection == "🔴 Error intelligence":
+    st.markdown("## Error intelligence <span class='github-badge'>GitHub</span> <span class='github-badge' style='background:#e74c3c'>Sentry</span>", unsafe_allow_html=True)
+    st.caption("Cross-join merged PRs with Sentry errors to find which PRs introduced bugs.")
+    st.divider()
+
+    col1, col2, col3 = st.columns([3, 2, 1], vertical_alignment="bottom")
+    with col1:
+        repo_input = st.text_input(
+            "Repository",
+            placeholder="owner/repo", key="repo_ei",
+            label_visibility="collapsed"
+        )
+    with col2:
+        sentry_project = st.text_input(
+        "Sentry project",
+        value="python",
+        placeholder="your-project-name",
+        key="sentry_proj",
+        label_visibility="collapsed"
+    )
+        
+    with col3:
+        run_btn = st.button("▶ Analyse", use_container_width=True, type="primary")
+
+    st.write("")
+
+    if run_btn:
+        if "/" not in repo_input:
+            st.error("❌ Invalid format. Please use 'owner/repo'.")
+        else:
+            owner, repo = repo_input.split("/", 1)
+            prompt = (
+                f"Run error intelligence for GitHub repo {owner}/{repo} "
+                f"and Sentry project {sentry_project}. "
+                f"Show unresolved Sentry errors and correlate them with recent merged PRs."
+            )
+
+            with st.status("🔴 **Querying GitHub + Sentry via Coral SQL...**", expanded=True) as status:
+                st.write("Executing `error_intelligence` tool...")
+                try:
+                    response = run_agent(prompt, model=selected_model)
+                    status.update(label="Analysis Complete!", state="complete", expanded=False)
                 except Exception as e:
                     status.update(label="Failed", state="error")
                     st.error(f"Error running agent: {e}")
