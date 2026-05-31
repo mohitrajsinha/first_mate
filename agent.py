@@ -6,12 +6,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 MODELS = {
-    "gemini":     "gemini-2.5-flash",
-    "gemini-pro": "gemini-3.5-flash",
+    "gemini-2.5-flash": "gemini-2.5-flash",
+    "gemini-3.5-flash": "gemini-3.5-flash",
 }
 
 
-def run_agent(user_message: str, model: str = "gemini") -> str:
+def run_agent(user_message: str, model: str = "gemini-2.5-flash") -> str:
     from google import genai
     from google.genai import types
 
