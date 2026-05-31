@@ -7,6 +7,7 @@ SELECT id, number, title, state, labels, created_at, user__login, comments
 FROM github.issues
 WHERE owner = '{owner}' AND repo = '{repo}'
   AND state = 'open'
+  AND created_at >= '2025-01-01'
 ORDER BY created_at DESC
 LIMIT 10
 """
