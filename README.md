@@ -138,6 +138,9 @@ SENTRY_ORG=your-org-slug
 
 ## 🎮 Demo
 
+### Live Demo
+https://youtu.be/WhXLNnOrSMc
+
 ### Issue Triage
 ```
 Enter: any_org/any_repo → click Triage
